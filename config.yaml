@@ -1,0 +1,203 @@
+# ─── OSINT Social Media Monitor — configuration ───────────────────────────────
+# Secrets (API key, SMTP password) go in .env, not here.
+
+timezone: Asia/Dhaka          # used for display in emails and the dashboard
+retention_days: 30            # items older than this are deleted so the database stays small (matters on GitHub)
+
+# Google News. `topic` pulls a whole section, `query` searches a keyword.
+# Topics: TOP, WORLD, NATION, BUSINESS, TECHNOLOGY, SCIENCE, HEALTH, SPORTS, ENTERTAINMENT
+google_news:
+  lang: en
+  country: US
+  window: 1d
+  feeds:
+    - { topic: TOP }
+    - { topic: WORLD }
+    - { topic: BUSINESS }
+    - { topic: HEALTH }
+    - { topic: WORLD, country: GB }     # UK edition — same section, different newsroom mix
+    - { topic: WORLD, country: IN }     # India edition
+    # - { query: "your brand or topic" }
+    # - { query: "বাংলাদেশ", lang: bn, country: BD }
+
+rss_feeds:
+  - { name: "BBC World", url: "https://feeds.bbci.co.uk/news/world/rss.xml" }
+  - { name: "Al Jazeera", url: "https://www.aljazeera.com/xml/rss/all.xml" }
+  - { name: "The Guardian", url: "https://www.theguardian.com/world/rss" }
+  - { name: "New York Times", url: "https://rss.nytimes.com/services/xml/rss/nyt/World.xml" }
+  - { name: "CNN", url: "http://rss.cnn.com/rss/edition_world.rss" }
+  - { name: "NPR", url: "https://feeds.npr.org/1004/rss.xml" }
+  - { name: "Deutsche Welle", url: "https://rss.dw.com/rdf/rss-en-all" }
+  - { name: "France 24", url: "https://www.france24.com/en/rss" }
+  - { name: "Sky News", url: "https://feeds.skynews.com/feeds/rss/world.xml" }
+  - { name: "Times of India", url: "https://timesofindia.indiatimes.com/rssfeeds/296589292.cms" }
+  - { name: "ABC (Australia)", url: "https://www.abc.net.au/news/feed/51120/rss.xml" }
+  # Bangladesh feeds — uncomment to put them back in the mix:
+  # - { name: "Prothom Alo", url: "https://www.prothomalo.com/feed/" }
+  # - { name: "The Daily Star", url: "https://www.thedailystar.net/frontpage/rss.xml" }
+  # - { name: "Risingbd", url: "https://www.risingbd.com/rss/rss.xml" }
+  # - { name: "TBS News", url: "https://www.tbsnews.net/rss.xml" }
+
+# Public Reddit posts + latest comments (no login needed)
+reddit:
+  subreddits: [worldnews, news]
+  include_comments: true
+  searches: []                  # keyword search across all of Reddit, e.g. ["your brand"]
+  search_limit: 25
+
+# Public Telegram channels. No API key: the channel's public preview page is read.
+# Most big outlets abandoned Telegram (CNN, AP, France 24 last posted in 2023).
+# rtnews and sputniknews are still active but state-run — add them only if you want that in the mix.
+telegram:
+  channels: [bloomberg]
+  limit: 40
+
+# Public Mastodon hashtag timelines (open, no key)
+mastodon:
+  instances: [mastodon.social]
+  tags: [news, worldnews, politics]
+  limit: 40
+
+# YouTube videos + comments. Needs YOUTUBE_API_KEY in .env (free, Google Cloud Console).
+# Skipped automatically when no key is set.
+# Free quota: search.list is capped at 100 calls/day and every run uses one call per query,
+# so YouTube only runs every `every_minutes` (2 queries x 24 runs = 48 calls/day).
+youtube:
+  queries: ["world news", "breaking news"]
+  region: ""                    # "" = worldwide; "US", "GB", "BD" ... to bias one country
+  max_results: 15
+  comments_per_video: 20
+  lookback_hours: 24
+  every_minutes: 60
+
+analyzer:
+  provider: auto              # auto picks the first key it finds: GEMINI_API_KEY, then ANTHROPIC_API_KEY,
+                              # then OPENAI_API_KEY; none of them means the offline lexicon.
+                              # gemini | claude | openai | lexicon to force one.
+  gemini_model: gemini-3.5-flash-lite      # free tier; try gemini-3.5-flash for better accuracy
+  gemini_min_seconds_between_requests: 6   # free tier allows only a few requests per minute
+  claude_model: claude-opus-5
+  claude_effort: low          # low is enough for classification; raise if accuracy is poor
+  openai_model: gpt-5.4-mini  # OpenAI has no free tier; every call is billed
+  batch_size: 25
+  max_items_per_run: 500
+
+# ─── Credibility check (negative items) ───────────────────────────────────────
+# NOT a "% true" score — nothing can compute that. It combines three measurable signals:
+#   1. published fact-checks (Rumor Scanner, BOOM, AFP, Snopes, ...) matching the claim
+#   2. how many independent sources carry the same story
+#   3. what kind of source it is (established outlet vs. an unknown site vs. a comment)
+credibility:
+  enabled: true
+  fact_check: true              # Google Fact Check Tools API; reuses YOUTUBE_API_KEY (or GOOGLE_API_KEY).
+                                # Enable "Fact Check Tools API" in the same Google Cloud project first.
+  fact_check_max_age_days: 0    # 0 = no age limit. Old debunks still matter — rumours come back around,
+                                # and limiting to a year was measurably losing real matches.
+  fact_check_skip_well_sourced: true   # skip the lookup (~2s each) for stories several trusted outlets carry
+  fact_check_max_lookups: 30           # lookups per run. Each takes ~2s, and on GitHub Actions that time
+                                       # is billed — 30 keeps a run at roughly a minute of lookups.
+                                       # Doubtful items (comments, unknown sites) are checked first.
+  fact_check_min_similarity: 0.30      # character-level similarity needed to accept a published fact-check
+                                       # as being about this item. Calibrated on real pairs: same story
+                                       # scored >= 0.39, unrelated stories <= 0.21. Raise it to be stricter.
+  corroboration_window_hours: 48
+  max_items_per_run: 120
+  # Sources treated as established (substring match, case-insensitive)
+  trusted_sources:
+    - Reuters
+    - Associated Press
+    - AP News
+    - AFP
+    - BBC
+    - Al Jazeera
+    - The Guardian
+    - New York Times
+    - Washington Post
+    - CNN
+    - NPR
+    - NBC News
+    - CBS News
+    - ABC News
+    - Sky News
+    - Deutsche Welle
+    - France 24
+    - Bloomberg
+    - Financial Times
+    - The Economist
+    - Politico
+    - Axios
+    - Times of India
+    - The Hindu
+    - South China Morning Post
+    - Kyodo
+    - Anadolu
+    - ReliefWeb
+    - t.me/bloomberg          # a newsroom's own Telegram channel counts as that newsroom
+    # Bangladesh outlets
+    - Prothom Alo
+    - প্রথম আলো
+    - The Daily Star
+    - bdnews24
+    - The Business Standard
+    - Bangladesh Sangbad Sangstha
+    - BSS
+    - Dhaka Tribune
+    - New Age
+    - Jugantor
+    - Samakal
+    - Ittefaq
+    - Kaler Kantho
+    - Banglanews24
+    - Jagonews24
+    - Daily Sun
+    - Risingbd
+    - TBS News
+    - UNB
+
+# ─── Demo access ─────────────────────────────────────────────────────────────
+# Visitors register once, then get a free trial. Registrations are rows in a Google Sheet:
+# the app's own filesystem is wiped on every reboot, and the team reads the leads there.
+# The deployed app needs `gsheet_id` and `[gcp_service_account]` in its Streamlit secrets;
+# without them it refuses to open (set DEMO_OPEN=1 to work on it locally).
+demo_access:
+  enabled: true
+  require: true
+  trial_days: 14
+  worksheet: users
+  contact_email: ""           # shown when a trial ends — put the address people should write to
+
+# ─── Brief: what happened, in a few lines ─────────────────────────────────────
+# The counts are computed in code; the LLM only turns the headlines into sentences.
+# Without an LLM key a plain version is written instead.
+digest:
+  enabled: true
+  windows: [6, 24, 72, 168, 720]   # one per time range in the dashboard: 6h, 24h, 3d, 7d, 30d
+  every_hours: 6              # how often a brief is rewritten (each one costs one LLM call)
+  max_stories: 45             # headlines sent per brief; near-duplicates are merged first
+  email: true                 # send the 24h brief once a day
+  email_hour: 9               # local hour (see `timezone` above) to send it
+
+# ─── Ticket / email alert ─────────────────────────────────────────────────────
+# A ticket is created (and emailed) when, within the last `window_hours`:
+#   total analyzed items >= min_items
+#   AND negative share   >= negative_ratio_threshold
+#   AND negative items   >= min_negative_count
+alert:
+  recipients: [ffoisall@gmail.com]
+  window_hours: 6
+  min_items: 20
+  # An ordinary hour measures anywhere between 35% and 59% negative, so a fixed number alone either
+  # fires constantly or never. The bar is the HIGHER of:
+  #   negative_ratio_threshold  — an absolute floor, and
+  #   (the last `baseline_days` of this feed) + baseline_delta
+  negative_ratio_threshold: 0.50
+  baseline_days: 7            # what "normal" is measured over; 0 disables the baseline rule
+  baseline_delta: 0.12        # how far above normal counts as a spike (12 percentage points)
+  baseline_min_items: 200     # below this much history, fall back to the fixed floor
+  min_negative_count: 10
+  cooldown_hours: 6           # no repeat ticket within this time...
+  escalation_delta: 0.15      # ...unless the negative share rose by this much since the last ticket
+  top_items_in_email: 10
+
+watch:
+  interval_minutes: 30
