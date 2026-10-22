@@ -92,6 +92,8 @@ def _form(sheet, conf: dict) -> dict:
 def require_access(cfg: dict) -> dict | None:
     """The signed-in user. Renders the form and stops the script when there isn't one."""
     conf = cfg.get("demo_access") or {}
+    if not conf.get("enabled", True):
+        return None                            # the gate is switched off in config.yaml
     sheet_id = _secret("gsheet_id")
     if not sheet_id:
         if os.getenv("DEMO_OPEN") == "1":
@@ -101,8 +103,6 @@ def require_access(cfg: dict) -> dict | None:
             st.error("Demo access is switched on but not configured — this app needs `gsheet_id` "
                      "and `[gcp_service_account]` in its secrets.")
             st.stop()
-        return None
-    if not conf.get("enabled", True):
         return None
 
     try:
