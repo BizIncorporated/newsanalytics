@@ -384,6 +384,7 @@ else:
         local = TICKETS_DIR / f"{pick}.html"
         report = local.read_text(encoding="utf-8") if local.exists() else None
     if report:
-        # st.html sanitizes; the report holds headlines and links scraped from the internet
-        with st.container(border=True):
-            st.html(report)
+        # st.html sanitizes; the report holds headlines and links scraped from the internet.
+        # The email is written for a white inbox, so it gets a white sheet here too — on the
+        # dark dashboard its own grey text would be unreadable.
+        st.html(f'<div style="background:#ffffff;padding:18px;border-radius:10px">{report}</div>')
